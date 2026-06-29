@@ -1,0 +1,858 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Macalester Full Course Map v2</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0d0f14;color:#e2e0d8;height:100vh;overflow:hidden}
+
+/* ── TOOLBAR ─────────────────────────────────────────── */
+#toolbar{
+  position:fixed;top:0;left:0;right:0;height:54px;
+  background:#111318;border-bottom:1px solid #1e2230;
+  display:flex;align-items:center;gap:10px;padding:0 16px;z-index:200;
+}
+#toolbar h1{font-size:13px;font-weight:600;color:#f0ede6;white-space:nowrap}
+.tsep{width:1px;height:22px;background:#1e2230;flex-shrink:0}
+.fgroup{display:flex;gap:4px}
+.fb{
+  padding:4px 12px;border-radius:14px;border:1px solid transparent;
+  background:transparent;color:#606068;cursor:pointer;font-size:11.5px;
+  font-weight:500;white-space:nowrap;transition:all .15s;
+}
+.fb:hover{color:#b0b0b8}
+.fb.on{ border-color:var(--dc); background:var(--dbg); color:var(--df); }
+
+.fb[data-dept="COMP"]{--dc:#4444c0;--dbg:#14163a;--df:#a0a0f0}
+.fb[data-dept="MATH"]{--dc:#9a6000;--dbg:#1e1500;--df:#e0b060}
+.fb[data-dept="STAT"]{--dc:#207050;--dbg:#0a1e15;--df:#60d0a0}
+.fb[data-dept="ECON"]{--dc:#6a3aaa;--dbg:#1a0e30;--df:#c090f0}
+.fb[data-dept="ECONB"]{--dc:#884aaa;--dbg:#200f2a;--df:#d8a0f8}
+
+#search{
+  padding:5px 12px;border-radius:16px;
+  border:1px solid #1e2230;background:#181b24;
+  color:#e2e0d8;font-size:12px;width:170px;outline:none;
+}
+#search:focus{border-color:#4040a0}
+#search::placeholder{color:#404048}
+#count{
+  margin-left:auto;background:#181b24;border:1px solid #1e2230;
+  border-radius:10px;padding:3px 10px;font-size:11px;color:#505058;white-space:nowrap;
+}
+#hint{font-size:11px;color:#303038;white-space:nowrap;margin-right:4px}
+
+/* ── CANVAS ─────────────────────────────────────────── */
+#wrap{position:fixed;top:54px;left:0;right:0;bottom:0}
+svg{width:100%;height:100%}
+
+/* edges */
+.edge{fill:none;stroke-width:1.8px;opacity:.35;transition:opacity .15s,stroke-width .15s}
+.edge.COMP{stroke:#4444c0}
+.edge.MATH{stroke:#9a6000}
+.edge.STAT{stroke:#207050}
+.edge.ECON{stroke:#6a3aaa}
+.edge.ECONB{stroke:#884aaa}
+.edge.cross{stroke-dasharray:6,4}
+.edge.hl{opacity:1;stroke-width:2.8px}
+.edge.fd{opacity:.05}
+
+/* nodes */
+.nd{cursor:pointer}
+.nd .bg{rx:9;stroke-width:1.2px;transition:opacity .15s}
+.nd .ring{rx:9;fill:none;stroke-width:2.5px;opacity:0;transition:opacity .2s}
+.nd .ring.on{opacity:1}
+.nd.fd .bg{opacity:.12}
+.nd.fd text{opacity:.1}
+
+.nd.COMP .bg{fill:#141638;stroke:#3535b0}
+.nd.COMP .ring{stroke:#7070e0}
+.nd.COMP .lbl{fill:#b0b0f8}
+.nd.COMP .cod{fill:#7070c0}
+.nd.COMP .trm{fill:#5050a0}
+
+.nd.MATH .bg{fill:#1c1200;stroke:#906000}
+.nd.MATH .ring{stroke:#d09030}
+.nd.MATH .lbl{fill:#e0b060}
+.nd.MATH .cod{fill:#a07030}
+.nd.MATH .trm{fill:#806020}
+
+.nd.STAT .bg{fill:#081a12;stroke:#186040}
+.nd.STAT .ring{stroke:#28b080}
+.nd.STAT .lbl{fill:#60d0a0}
+.nd.STAT .cod{fill:#309060}
+.nd.STAT .trm{fill:#207050}
+
+.nd.ECON .bg{fill:#160c28;stroke:#5a2a98}
+.nd.ECON .ring{stroke:#9060d8}
+.nd.ECON .lbl{fill:#c090f8}
+.nd.ECON .cod{fill:#8060b0}
+.nd.ECON .trm{fill:#604888}
+
+.nd.ECONB .bg{fill:#1a0c28;stroke:#783898}
+.nd.ECONB .ring{stroke:#b070d8}
+.nd.ECONB .lbl{fill:#d8a0f8}
+.nd.ECONB .cod{fill:#9868b8}
+.nd.ECONB .trm{fill:#7050a0}
+
+.nd .cod{font-size:10px;font-weight:600}
+.nd .lbl{font-size:11.5px;font-weight:500}
+.nd .trm{font-size:9px}
+.cap-star{font-size:11px;fill:#d0b850;fill-opacity:.7}
+
+/* ── SIDE PANEL ─────────────────────────────────────── */
+#panel{
+  position:fixed;right:-340px;top:54px;width:340px;bottom:0;
+  background:#111318;border-left:1px solid #1e2230;
+  overflow-y:auto;transition:right .22s ease;z-index:100;
+}
+#panel.open{right:0}
+#pcls{
+  position:sticky;top:0;background:#111318;padding:12px 16px 8px;
+  display:flex;justify-content:flex-end;border-bottom:1px solid #1e2230;
+  z-index:1;
+}
+#pcls button{
+  background:#181b24;border:1px solid #1e2230;color:#606068;
+  width:26px;height:26px;border-radius:50%;cursor:pointer;font-size:13px;
+  display:flex;align-items:center;justify-content:center;
+}
+#pcls button:hover{color:#c0c0c8;background:#1e2230}
+#pbody{padding:16px 18px 40px}
+.pd{font-size:10px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;margin-bottom:4px}
+.pc{font-size:12px;font-weight:600;opacity:.6;margin-bottom:2px}
+.pt{font-size:18px;font-weight:500;color:#f0ede6;line-height:1.3;margin-bottom:10px}
+.ptags{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:12px}
+.tag{font-size:10px;font-weight:600;padding:2px 8px;border-radius:4px}
+.tag-fall{background:#1c1600;color:#d0a030;border:1px solid #4a3a00}
+.tag-spring{background:#081a12;color:#30c078;border:1px solid #0a3a20}
+.tag-both{background:#0e1428;color:#5080e0;border:1px solid #1e2a50}
+.tag-occ{background:#1e0e18;color:#d06088;border:1px solid #4a1a30}
+.tag-cap{background:#201800;color:#e0a020;border:1px solid #503800}
+.tag-cross{background:#1a1a00;color:#c0c030;border:1px solid #3a3a00}
+.psec-lbl{font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#404048;margin:14px 0 5px}
+.psec-body{font-size:12.5px;color:#9a9898;line-height:1.6}
+.chip{
+  display:inline-block;padding:3px 9px;border-radius:5px;font-size:11px;
+  font-weight:600;margin:2px 3px 2px 0;cursor:pointer;
+  border:1px solid #333;transition:opacity .12s;
+}
+.chip:hover{opacity:.75}
+.chip.COMP{background:#141638;color:#9090e8;border-color:#3535b0}
+.chip.MATH{background:#1c1200;color:#d0a050;border-color:#906000}
+.chip.STAT{background:#081a12;color:#50c090;border-color:#186040}
+.chip.ECON{background:#160c28;color:#b080e8;border-color:#5a2a98}
+.chip.ECONB{background:#1a0c28;color:#c898e8;border-color:#783898}
+
+/* ── LEGEND ─────────────────────────────────────────── */
+#legend{
+  position:fixed;bottom:14px;left:14px;
+  background:#111318;border:1px solid #1e2230;
+  border-radius:10px;padding:9px 14px;
+  display:flex;gap:14px;flex-wrap:wrap;z-index:150;
+}
+.lg{display:flex;align-items:center;gap:5px;font-size:11px;color:#505058}
+.lg-ln{width:20px;height:3px;border-radius:2px}
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <h1>Macalester Course Map</h1>
+  <div class="tsep"></div>
+  <div class="fgroup">
+    <button class="fb on" data-dept="COMP">CS</button>
+    <button class="fb on" data-dept="MATH">Math</button>
+    <button class="fb on" data-dept="STAT">Stat / DS</button>
+    <button class="fb on" data-dept="ECON">Econ (Group E)</button>
+    <button class="fb on" data-dept="ECONB">Econ (Group B)</button>
+  </div>
+  <div class="tsep"></div>
+  <input id="search" placeholder="Search…" type="search">
+  <span id="count">— courses</span>
+  <div class="tsep"></div>
+  <span id="hint">Scroll=zoom · Drag=pan · Click=details</span>
+</div>
+
+<div id="wrap"><svg id="g"></svg></div>
+
+<div id="panel">
+  <div id="pcls"><button onclick="closePanel()">✕</button></div>
+  <div id="pbody">
+    <div class="pd" id="pd"></div>
+    <div class="pc" id="pc"></div>
+    <div class="pt" id="pt"></div>
+    <div class="ptags" id="ptags"></div>
+    <div class="psec-lbl">Description</div>
+    <div class="psec-body" id="pdesc"></div>
+    <div class="psec-lbl">Prerequisites</div>
+    <div class="psec-body" id="ppre"></div>
+    <div class="psec-lbl">Unlocks (courses needing this)</div>
+    <div class="psec-body" id="punl"></div>
+    <div class="psec-lbl">Cross-listed as</div>
+    <div class="psec-body" id="pxl"></div>
+  </div>
+</div>
+
+<div id="legend">
+  <div class="lg"><div class="lg-ln" style="background:#4444c0"></div>CS prereq</div>
+  <div class="lg"><div class="lg-ln" style="background:#9a6000"></div>Math prereq</div>
+  <div class="lg"><div class="lg-ln" style="background:#207050"></div>Stat prereq</div>
+  <div class="lg"><div class="lg-ln" style="background:#6a3aaa"></div>Econ prereq</div>
+  <div class="lg"><div class="lg-ln" style="background:#555;border-top:2px dashed #aaa;height:0;width:20px"></div>— dashed = cross-dept</div>
+  <div class="lg"><span style="font-size:11px;color:#d0b850">★</span><span>Capstone</span></div>
+</div>
+
+<script>
+// ════════════════════════════════════════════════════════
+// COURSE DATA  (dept codes: COMP MATH STAT ECON ECONB)
+// prereqs: array of IDs that MUST be taken before
+// ════════════════════════════════════════════════════════
+const C = [
+// ── COMP ────────────────────────────────────────────────
+{id:"C112", code:"COMP 112", name:"Intro to Data Science",           dept:"COMP", term:"both", cap:false, cross:"STAT 112",
+ prereqs:[],
+ desc:"Intro to handling, analysis, and interpretation of big datasets in R. No background assumed. Required for DS major/minor."},
+{id:"C120", code:"COMP 120", name:"Computing and Society",            dept:"COMP", term:"fall", cap:false, cross:"",
+ prereqs:[],
+ desc:"Topics course introducing computing through a theme (Digital Humanities, Green Computing, Social Media). Good for students with no prior computing background. Often a First Year Course."},
+{id:"C123", code:"COMP 123", name:"Core Concepts in CS",             dept:"COMP", term:"both", cap:false, cross:"",
+ prereqs:[],
+ desc:"Intro CS: algorithms, abstraction, testing. Python. Multimedia processing, turtle graphics, text processing."},
+{id:"C127", code:"COMP 127", name:"Object-Oriented Programming",     dept:"COMP", term:"both", cap:false, cross:"",
+ prereqs:["C123"],
+ desc:"OOP in Java: abstraction, decomposition, encapsulation. Graphics, games, simulations. Polymorphism, inheritance, version control. Student-designed project."},
+{id:"C128", code:"COMP 128", name:"Data Structures",                 dept:"COMP", term:"both", cap:false, cross:"",
+ prereqs:["C127"],
+ desc:"Fundamental data structures in Java: stacks, queues, lists, trees, heaps, hash tables, graphs. Big-O complexity analysis."},
+{id:"C154", code:"COMP 154", name:"Digital Ethics",                  dept:"COMP", term:"occ",  cap:false, cross:"PHIL 225",
+ prereqs:[],
+ desc:"Ethical questions on the internet: free speech, privacy, surveillance, IP, gaming, social networking, hacktivism, networked society."},
+{id:"C212", code:"COMP 212", name:"Intermediate Data Science",       dept:"COMP", term:"both", cap:false, cross:"STAT 212",
+ prereqs:["C112","C123","S155"],
+ desc:"Advanced wrangling, interactive visualization, SQL, Git, data ethics. Open-ended projects. STAT 253 recommended."},
+{id:"C221", code:"COMP 221", name:"Algorithm Design & Analysis",     dept:"COMP", term:"both", cap:false, cross:"",
+ prereqs:["C128","M279"],
+ desc:"Algorithms: recursion, divide-and-conquer, dynamic programming, greedy, randomized. Computability: automata, NP-completeness."},
+{id:"C225", code:"COMP 225", name:"Software Design & Development",   dept:"COMP", term:"both", cap:false, cross:"",
+ prereqs:["C127"],
+ desc:"Building software for humans: semester-long team project. User-centered design, HCI, product management, iterative dev, testing. Public demo."},
+{id:"C240", code:"COMP 240", name:"Computer Systems",                dept:"COMP", term:"both", cap:false, cross:"",
+ prereqs:["C127"],
+ desc:"How computers work: data representation, compilation, CPU, memory. C and assembly language."},
+{id:"C272", code:"COMP 272", name:"Advanced Remote Sensing",         dept:"COMP", term:"spring",cap:false,cross:"GEOG 372",
+ prereqs:[],
+ desc:"Advanced remote sensing with Google Earth Engine (JavaScript). ML for image classification, time-series. Research manuscript. Prereq: GEOG 352."},
+{id:"C302", code:"COMP 302", name:"Database Management Systems",     dept:"COMP", term:"occ",  cap:false, cross:"",
+ prereqs:["C127"],
+ desc:"Database design, implementation, analysis. Relational algebra, SQL, distributed databases, data warehouses."},
+{id:"C320", code:"COMP 320", name:"Computational Biology",           dept:"COMP", term:"fall", cap:false, cross:"BIOL 320",
+ prereqs:["C123"],
+ desc:"Bioinformatics, genomics algorithms, computational systems biology, synthetic biology. BIOL 190 recommended."},
+{id:"C321", code:"COMP 321", name:"Software Testing",                dept:"COMP", term:"occ",  cap:false, cross:"",
+ prereqs:["C127","C128"],
+ desc:"Hands-on software testing: static analysis, manual and automated testing. Real-world software failure discussion."},
+{id:"C325", code:"COMP 325", name:"Video Games: Coding & Narrative", dept:"COMP", term:"occ",  cap:false, cross:"ENGL 224",
+ prereqs:["C127"],
+ desc:"Interdisciplinary game development: world-building narrative + programming. Storytelling, coding, identity."},
+{id:"C340", code:"COMP 340", name:"Digital Electronics",             dept:"COMP", term:"spring",cap:false,cross:"PHYS 340",
+ prereqs:["M137"],
+ desc:"Digital circuit design: Boolean logic, combinatorial/sequential design, memory circuits, microprocessor design. Lab included."},
+{id:"C342", code:"COMP 342", name:"Operating Systems & Architecture",dept:"COMP", term:"occ",  cap:false, cross:"",
+ prereqs:["C240"],
+ desc:"OS design: processes, synchronization, scheduling, memory management, file systems, security. C programming."},
+{id:"C361", code:"COMP 361", name:"Theory of Computation",           dept:"COMP", term:"occ",  cap:false, cross:"MATH 361",
+ prereqs:["C128","M279"],
+ desc:"Theoretical CS: finite automata, grammars, Turing machines, computability, complexity, P vs NP."},
+{id:"C364", code:"COMP 364", name:"Human-Computer Interaction",      dept:"COMP", term:"occ",  cap:false, cross:"",
+ prereqs:["C123"],
+ desc:"HCI: user-centered design, prototyping, evaluation, human cognition. Group project from problem to prototype."},
+{id:"C365", code:"COMP 365", name:"Computational Linear Algebra",    dept:"COMP", term:"spring",cap:false,cross:"MATH 365",
+ prereqs:["M236","M137","C123"],
+ desc:"Applied linear algebra + numerical analysis: systems, SVD, eigenvalues, optimization. Across natural/social sciences."},
+{id:"C381", code:"COMP 381", name:"Programming Languages",           dept:"COMP", term:"occ",  cap:false, cross:"",
+ prereqs:["C128"],
+ desc:"Programming language design: type systems, abstraction, closures, concurrency, memory management, compilation."},
+{id:"C435", code:"COMP 435", name:"Data Visualization",             dept:"COMP", term:"occ",  cap:true,  cross:"",
+ prereqs:["C127"],
+ desc:"★ Capstone. Visualization for multivariate, temporal, spatial, hierarchical, graph data. Graphic design, perceptual psychology."},
+{id:"C440", code:"COMP 440", name:"Collective Intelligence",         dept:"COMP", term:"occ",  cap:true,  cross:"",
+ prereqs:["C221"],
+ desc:"★ Capstone. Data science on online communities. ML, data mining, recommender systems, NLP, tagging systems."},
+{id:"C445", code:"COMP 445", name:"Parallel & Distributed Processing",dept:"COMP",term:"occ",  cap:true,  cross:"",
+ prereqs:["C240","C221"],
+ desc:"★ Capstone. Parallel/distributed computing architectures and programming."},
+{id:"C446", code:"COMP 446", name:"Internet Computing",              dept:"COMP", term:"occ",  cap:true,  cross:"",
+ prereqs:["C225"],
+ desc:"★ Capstone. Dynamic web applications: HTTP/REST, HTML/CSS/JS, web frameworks. Privacy and social consequences."},
+{id:"C456", code:"COMP 456", name:"Projects in Data Science",        dept:"COMP", term:"fall", cap:true,  cross:"STAT 456",
+ prereqs:["C212","S253"],
+ desc:"★ Capstone. Team-based open-ended data science projects. Research questions, wrangling, modeling, presentation."},
+{id:"C465", code:"COMP 465", name:"Interactive Computer Graphics",   dept:"COMP", term:"occ",  cap:true,  cross:"",
+ prereqs:["C240"],
+ desc:"★ Capstone. Computer graphics with C++ and OpenGL: 2D/3D rendering, texturing, lighting, VR."},
+{id:"C479", code:"COMP 479", name:"Network Science",                 dept:"COMP", term:"spring",cap:false,cross:"MATH 479",
+ prereqs:["C123","M236","M279"],
+ desc:"Complex networks: structure, centrality, community detection, diffusion. Cross-disciplinary (CS/Math/Soc)."},
+{id:"C480", code:"COMP 480", name:"AI Robotics",                     dept:"COMP", term:"occ",  cap:true,  cross:"",
+ prereqs:["C221"],
+ desc:"★ Capstone. Robot construction + control programming. Sensors, reactive/deliberative control. Python."},
+{id:"C484", code:"COMP 484", name:"Intro to Artificial Intelligence",dept:"COMP", term:"fall", cap:true,  cross:"",
+ prereqs:["C221"],
+ desc:"★ Capstone. AI: heuristic search, reasoning, machine learning, planning. Robotics, games, NLP. Python."},
+{id:"C487", code:"COMP 487", name:"Computer Security & Privacy",     dept:"COMP", term:"occ",  cap:true,  cross:"",
+ prereqs:["C128"],
+ desc:"★ Capstone. Security: threat modeling, software/web security, authentication, anonymity, network security, ethics. Linux hands-on."},
+
+// ── MATH ────────────────────────────────────────────────
+{id:"M135", code:"MATH 135", name:"Applied Calculus I",              dept:"MATH", term:"both", cap:false, cross:"",
+ prereqs:[],
+ desc:"Limits, derivatives, integrals with real-world applications. First calculus course. Required for Econ major math requirement."},
+{id:"M137", code:"MATH 137", name:"Applied Calculus II",             dept:"MATH", term:"both", cap:false, cross:"",
+ prereqs:["M135"],
+ desc:"Multivariable calculus, integration techniques, differential equations, series. Required for Econ major math requirement."},
+{id:"M237", code:"MATH 237", name:"Multivariable Calculus",          dept:"MATH", term:"both", cap:false, cross:"",
+ prereqs:["M137"],
+ desc:"Calculus of several variables: partial derivatives, multiple integrals, vector calculus, Green's and Stokes' theorems."},
+{id:"M236", code:"MATH 236", name:"Linear Algebra",                  dept:"MATH", term:"both", cap:false, cross:"",
+ prereqs:["M137"],
+ desc:"Matrices, vector spaces, linear transformations, eigenvalues. Foundational for econometrics, ML, and many upper-level courses."},
+{id:"M279", code:"MATH 279", name:"Discrete Mathematics",            dept:"MATH", term:"both", cap:false, cross:"",
+ prereqs:[],
+ desc:"Logic, sets, functions, proofs, combinatorics, graph theory. Essential for COMP 221 and theoretical CS."},
+{id:"M312", code:"MATH 312", name:"Real Analysis I",                 dept:"MATH", term:"fall", cap:false, cross:"",
+ prereqs:["M237","M279"],
+ desc:"Rigorous calculus foundations: limits, continuity, differentiation, integration for real functions. Proof-intensive."},
+{id:"M354", code:"MATH 354", name:"Probability Theory",              dept:"MATH", term:"both", cap:false, cross:"STAT 354",
+ prereqs:["M137"],
+ desc:"Mathematical probability: sample spaces, random variables, distributions, expectation, limit theorems, Markov chains."},
+{id:"M361", code:"MATH 361", name:"Theory of Computation",           dept:"MATH", term:"occ",  cap:false, cross:"COMP 361",
+ prereqs:["C128","M279"],
+ desc:"Same as COMP 361. Automata, computability, complexity, P vs NP."},
+{id:"M365", code:"MATH 365", name:"Computational Linear Algebra",    dept:"MATH", term:"spring",cap:false,cross:"COMP 365",
+ prereqs:["M236","M137","C123"],
+ desc:"Same as COMP 365. Applied linear algebra + numerical methods."},
+{id:"M375", code:"MATH 375", name:"Graph Theory",                    dept:"MATH", term:"occ",  cap:false, cross:"",
+ prereqs:["M279"],
+ desc:"Graphs, trees, colorings, matchings, connectivity, planar graphs, network flows. Applications in CS and OR."},
+{id:"M376", code:"MATH 376", name:"Abstract Algebra I",              dept:"MATH", term:"fall", cap:false, cross:"",
+ prereqs:["M236","M279"],
+ desc:"Groups, rings, fields, homomorphisms, quotient structures. Rigorous proof-based modern algebra."},
+{id:"M377", code:"MATH 377", name:"Topology",                        dept:"MATH", term:"spring",cap:false, cross:"",
+ prereqs:["M312"],
+ desc:"Topological spaces, continuity, connectedness, compactness, metric spaces."},
+{id:"M378", code:"MATH 378", name:"Complex Analysis",                dept:"MATH", term:"occ",  cap:false, cross:"",
+ prereqs:["M312"],
+ desc:"Analytic functions, Cauchy's theorem, power series, residues, conformal mappings."},
+{id:"M379", code:"MATH 379", name:"Combinatorics",                   dept:"MATH", term:"occ",  cap:false, cross:"",
+ prereqs:["M279"],
+ desc:"Counting techniques, generating functions, recurrences, Ramsey theory, combinatorial designs."},
+{id:"M432", code:"MATH 432", name:"Mathematical Modeling",           dept:"MATH", term:"occ",  cap:true,  cross:"",
+ prereqs:["M237","M236"],
+ desc:"★ Capstone. Mathematical models of real-world phenomena: ODEs, optimization, stochastic models, simulation."},
+{id:"M437", code:"MATH 437", name:"Partial Differential Equations",  dept:"MATH", term:"occ",  cap:false, cross:"",
+ prereqs:["M237","M236"],
+ desc:"PDEs: heat/wave/Laplace equations. Fourier series, separation of variables, Green's functions, numerical methods."},
+{id:"M471", code:"MATH 471", name:"Numerical Analysis",              dept:"MATH", term:"occ",  cap:true,  cross:"",
+ prereqs:["M237","M236","C123"],
+ desc:"★ Capstone. Numerical methods: root-finding, interpolation, numerical integration, ODE solvers, error analysis."},
+{id:"M479", code:"MATH 479", name:"Network Science",                 dept:"MATH", term:"spring",cap:false,cross:"COMP 479",
+ prereqs:["C123","M236","M279"],
+ desc:"Same as COMP 479. Complex networks: structure, centrality, diffusion."},
+
+// ── STAT ────────────────────────────────────────────────
+{id:"S112", code:"STAT 112", name:"Intro to Data Science",           dept:"STAT", term:"both", cap:false, cross:"COMP 112",
+ prereqs:[],
+ desc:"Same as COMP 112. Data science in R: handling, analysis, visualization. No background needed. Required for DS minor."},
+{id:"S155", code:"STAT 155", name:"Intro to Statistical Modeling",   dept:"STAT", term:"both", cap:false, cross:"",
+ prereqs:[],
+ desc:"Multivariate statistical modeling in R. Cannot be replaced by AP Stats. Regression, model building, inference. Required DS minor. Strongly recommended before ECON 381."},
+{id:"S212", code:"STAT 212", name:"Intermediate Data Science",       dept:"STAT", term:"both", cap:false, cross:"COMP 212",
+ prereqs:["S112","C123","S155"],
+ desc:"Same as COMP 212. Advanced wrangling, visualization, databases, version control, data ethics."},
+{id:"S253", code:"STAT 253", name:"Statistical Machine Learning",    dept:"STAT", term:"both", cap:false, cross:"",
+ prereqs:["S155"],
+ desc:"Supervised and unsupervised ML in R: regression, classification, cross-validation, trees, forests, clustering."},
+{id:"S354", code:"STAT 354", name:"Probability Theory",              dept:"STAT", term:"both", cap:false, cross:"MATH 354",
+ prereqs:["M137"],
+ desc:"Same as MATH 354. Mathematical probability theory."},
+{id:"S451", code:"STAT 451", name:"Bayesian Statistics",             dept:"STAT", term:"occ",  cap:false, cross:"",
+ prereqs:["S155","M354"],
+ desc:"Bayesian inference: prior/posterior, conjugate models, MCMC, hierarchical models, model comparison."},
+{id:"S452", code:"STAT 452", name:"Statistical Learning II",         dept:"STAT", term:"occ",  cap:false, cross:"",
+ prereqs:["S253"],
+ desc:"Advanced ML: deep learning, neural networks, unsupervised methods, dimension reduction, regularization."},
+{id:"S453", code:"STAT 453", name:"Survival Analysis",               dept:"STAT", term:"occ",  cap:false, cross:"",
+ prereqs:["S155","S253"],
+ desc:"Time-to-event data: Kaplan-Meier, log-rank test, Cox proportional hazards. Applications in medicine/economics."},
+{id:"S454", code:"STAT 454", name:"Time Series Analysis",            dept:"STAT", term:"occ",  cap:false, cross:"",
+ prereqs:["S155"],
+ desc:"Temporal data: stationarity, ARIMA models, spectral analysis, forecasting, state-space models."},
+{id:"S456", code:"STAT 456", name:"Projects in Data Science",        dept:"STAT", term:"fall", cap:true,  cross:"COMP 456",
+ prereqs:["S212","S253"],
+ desc:"★ Capstone. Same as COMP 456. Team-based open-ended data science projects."},
+
+// ── ECON Group E ────────────────────────────────────────
+{id:"E119", code:"ECON 119", name:"Principles of Economics",         dept:"ECON", term:"both", cap:false, cross:"",
+ prereqs:[],
+ desc:"Intro micro and macroeconomics: scarcity, supply/demand, market structures, GDP, inflation, unemployment. Gateway to all 200-level ECON courses. Group E."},
+{id:"E129", code:"ECON 129", name:"Calculus-Based Principles",       dept:"ECON", term:"both", cap:false, cross:"",
+ prereqs:["M135"],
+ desc:"Calculus-intensive intro micro/macro. Same concepts as ECON 119. Satisfies same prerequisites. Group E."},
+{id:"E194", code:"ECON 194", name:"Topics Course (100-level)",       dept:"ECON", term:"occ",  cap:false, cross:"",
+ prereqs:["E119"],
+ desc:"Varies by semester. Consult department for current listing. Group E."},
+{id:"E221", code:"ECON 221", name:"International Economics",         dept:"ECON", term:"occ",  cap:false, cross:"INTL 225",
+ prereqs:["E119"],
+ desc:"International trade flows, commercial policy, welfare implications, WTO disputes. Foreign exchange, balance of payments, open economy macro. Group E."},
+{id:"E225", code:"ECON 225", name:"Comparative Economic Systems",    dept:"ECON", term:"occ",  cap:false, cross:"INTL 225",
+ prereqs:["E119"],
+ desc:"Economics of information/organization applied to US, Japan, Soviet/Russia. Incentive structures. Group E."},
+{id:"E229", code:"ECON 229", name:"World Economic History",          dept:"ECON", term:"occ",  cap:false, cross:"",
+ prereqs:["E119"],
+ desc:"Economic history from Stone Age to present: agriculture/industrial revolutions, Malthusian trap, globalization, financial crises. Group E."},
+{id:"E231", code:"ECON 231", name:"Environmental Economics & Policy",dept:"ECON", term:"occ",  cap:false, cross:"ENVI 231",
+ prereqs:["E119"],
+ desc:"Market failures (externalities, public goods), environmental policy instruments (regulations, taxes, cap-and-trade), cost-benefit analysis. Group E."},
+{id:"E235", code:"ECON 235", name:"Climate Change: Sci, Econ & Policy",dept:"ECON",term:"occ", cap:false, cross:"ENVI 235",
+ prereqs:["E119"],
+ desc:"Team-taught. Fossil fuels, climate science, Integrated Assessment Models, policy interventions, tech solutions. Group E."},
+{id:"E239", code:"ECON 239", name:"Economics of Global Food",        dept:"ECON", term:"occ",  cap:false, cross:"INTL 239",
+ prereqs:["E119"],
+ desc:"Food distribution, production, policy, hunger. US farm policy, food security, biotechnology, Green Revolution. Group E."},
+{id:"E241", code:"ECON 241", name:"Working in America",              dept:"ECON", term:"occ",  cap:false, cross:"",
+ prereqs:["E119"],
+ desc:"US labor market: participation, wages, inequality, discrimination, minimum wage, unemployment insurance, unions. Group E."},
+{id:"E242", code:"ECON 242", name:"Economics of Gender",             dept:"ECON", term:"occ",  cap:false, cross:"WGSS 242",
+ prereqs:["E119"],
+ desc:"Gender differences in economic outcomes: family economics, labor market interactions. Theory + empirical work. Group E."},
+{id:"E277", code:"ECON 277", name:"Money and Banking",               dept:"ECON", term:"occ",  cap:false, cross:"",
+ prereqs:["E119"],
+ desc:"Financial markets, banking system, monetary theory and policy, financial crises. Group E."},
+{id:"E294", code:"ECON 294", name:"Topics Course (200-level)",       dept:"ECON", term:"occ",  cap:false, cross:"",
+ prereqs:["E119"],
+ desc:"Varies by semester. Consult department for current listing. Group E."},
+{id:"E325", code:"ECON 325", name:"China, Russia & Central Europe",  dept:"ECON", term:"occ",  cap:false, cross:"INTL 325",
+ prereqs:["E119","E221"],
+ desc:"Soviet central planning and transition to market economy. Economics of organization. One 200-level Group E required. Group E."},
+{id:"E342", code:"ECON 342", name:"Economics of Poverty in the US",  dept:"ECON", term:"occ",  cap:false, cross:"",
+ prereqs:["E119"],
+ desc:"Poverty and inequality: labor markets, education, discrimination, residential segregation, immigration, public policy. Service learning component. Group E."},
+{id:"E356", code:"ECON 356", name:"Capital Markets",                 dept:"ECON", term:"occ",  cap:false, cross:"",
+ prereqs:["E113","E119"],
+ desc:"Financial markets, security analysis, portfolio theory, futures and options, mutual funds, betas. Group E."},
+{id:"E361", code:"ECON 361", name:"Intermediate Microeconomics",     dept:"ECON", term:"both", cap:false, cross:"",
+ prereqs:["M135","E119"],
+ desc:"Constrained choice: consumer theory, production theory, market equilibrium, welfare, risk, public goods. Calculus throughout. Requires one 200-level Group E course. Required for major. Group E."},
+{id:"E371", code:"ECON 371", name:"Intermediate Macroeconomics",     dept:"ECON", term:"both", cap:false, cross:"",
+ prereqs:["E361"],
+ desc:"Dynamic general equilibrium models: long-term growth, business cycles, monetary and fiscal policy. Required for major. Group E."},
+{id:"E381", code:"ECON 381", name:"Introduction to Econometrics",    dept:"ECON", term:"both", cap:false, cross:"",
+ prereqs:["E361","S155"],
+ desc:"Causal inference, OLS regression, hypothesis testing, IV, panel data, time series. Final research project. Required for major. Group E."},
+{id:"E394", code:"ECON 394", name:"Topics Course (300-level)",       dept:"ECON", term:"occ",  cap:false, cross:"",
+ prereqs:["E119"],
+ desc:"Varies by semester. Consult department for current listing."},
+{id:"E405", code:"ECON 405", name:"Industrial Organization",         dept:"ECON", term:"occ",  cap:false, cross:"",
+ prereqs:["E361","E381"],
+ desc:"Firm behavior in markets: game theory, strategic interaction, empirical IO, competition policy. NOT a capstone. Group E."},
+{id:"E406", code:"ECON 406", name:"Industrial Organization ★",       dept:"ECON", term:"occ",  cap:true,  cross:"",
+ prereqs:["E361","E381"],
+ desc:"★ Capstone version of ECON 405. Same content with capstone research requirement. Group E."},
+{id:"E421", code:"ECON 421", name:"Intl Trade & Multinationals",     dept:"ECON", term:"occ",  cap:false, cross:"",
+ prereqs:["E361","E371","E381"],
+ desc:"Multinational corporations, FDI, globalization. Trade theory + econometric applications. NOT a capstone. Group E."},
+{id:"E422", code:"ECON 422", name:"Intl Trade & Multinationals ★",   dept:"ECON", term:"occ",  cap:true,  cross:"",
+ prereqs:["E361","E371","E381"],
+ desc:"★ Capstone version of ECON 421. Same content with capstone research. Group E."},
+{id:"E425", code:"ECON 425", name:"International Econ Development",  dept:"ECON", term:"occ",  cap:false, cross:"",
+ prereqs:["E361","E381"],
+ desc:"Microeconomics of development in low-income countries: growth, fertility, health, cash transfers, credit, land markets. NOT a capstone. Group E."},
+{id:"E426", code:"ECON 426", name:"International Econ Development ★",dept:"ECON", term:"occ",  cap:true,  cross:"",
+ prereqs:["E361","E371","E381"],
+ desc:"★ Capstone version of ECON 425. Group E."},
+{id:"E431", code:"ECON 431", name:"Economics of Public Policy",      dept:"ECON", term:"occ",  cap:false, cross:"",
+ prereqs:["E361","E371","E381"],
+ desc:"Technical analysis of public policies: climate, healthcare, poverty programs, inequality, tax, education. NOT a capstone. Group E."},
+{id:"E432", code:"ECON 432", name:"Economics of Public Policy ★",    dept:"ECON", term:"occ",  cap:true,  cross:"",
+ prereqs:["E361","E371","E381"],
+ desc:"★ Capstone version of ECON 431. Group E."},
+{id:"E441", code:"ECON 441", name:"Labor Economics",                 dept:"ECON", term:"occ",  cap:false, cross:"",
+ prereqs:["E361","E371","E381"],
+ desc:"Micro/macro of work: participation, education investment, minimum wage, discrimination, unions, job search. NOT a capstone. Group E."},
+{id:"E442", code:"ECON 442", name:"Labor Economics ★",               dept:"ECON", term:"occ",  cap:true,  cross:"",
+ prereqs:["E361","E371","E381"],
+ desc:"★ Capstone version of ECON 441. Group E."},
+{id:"E444", code:"ECON 444", name:"Honors Seminar",                  dept:"ECON", term:"occ",  cap:true,  cross:"",
+ prereqs:[],
+ desc:"★ Capstone honors seminar. Permission of instructor required. Group E."},
+{id:"E457", code:"ECON 457", name:"Finance",                         dept:"ECON", term:"occ",  cap:false, cross:"",
+ prereqs:["E113","E361","E381"],
+ desc:"Corporate finance: cash flow management, capital budgeting, cost of capital, financial structure, CAPM, portfolio theory. Group E."},
+{id:"E462", code:"ECON 462", name:"Game Theory",                     dept:"ECON", term:"occ",  cap:false, cross:"",
+ prereqs:["E361"],
+ desc:"Strategic interaction: normal/extensive form games, Nash equilibrium, subgame perfection, repeated games, bargaining, auctions. Group E."},
+{id:"E471", code:"ECON 471", name:"Macroeconomic Modeling",          dept:"ECON", term:"occ",  cap:false, cross:"",
+ prereqs:["E371","E381"],
+ desc:"Advanced macro: DSGE models. Theory + lab. Formal exposition of modern macroeconomic theory. NOT a capstone. Group E."},
+{id:"E472", code:"ECON 472", name:"Macroeconomic Modeling ★",        dept:"ECON", term:"occ",  cap:true,  cross:"",
+ prereqs:["E371","E381"],
+ desc:"★ Capstone version of ECON 471. DSGE models. Group E."},
+{id:"E473", code:"ECON 473", name:"Open Economy Macroeconomics",     dept:"ECON", term:"occ",  cap:false, cross:"",
+ prereqs:["E371","E381"],
+ desc:"Open economy models: trade balance, current account, canonical open economy theory vs real world. NOT a capstone. Group E."},
+{id:"E474", code:"ECON 474", name:"Open Economy Macroeconomics ★",   dept:"ECON", term:"occ",  cap:true,  cross:"",
+ prereqs:["E371","E381"],
+ desc:"★ Capstone version of ECON 473. Group E."},
+{id:"E494", code:"ECON 494", name:"Topics in Economics",             dept:"ECON", term:"occ",  cap:false, cross:"",
+ prereqs:["E119"],
+ desc:"Special topics course varying by semester. Check department. Group E."},
+
+// ── ECON Group B ────────────────────────────────────────
+{id:"E113", code:"ECON 113", name:"Financial Accounting",            dept:"ECONB",term:"both",  cap:false, cross:"",
+ prereqs:[],
+ desc:"Financial statements for profit/non-profit orgs, international accounting, ethics, investment decisions. Group B."},
+{id:"E116", code:"ECON 116", name:"Organizational Leadership",       dept:"ECONB",term:"spring",cap:false, cross:"",
+ prereqs:[],
+ desc:"Leadership: self-awareness, empathy, social skills. Harvard MBA case studies, guest speakers. Group B."},
+{id:"E117", code:"ECON 117", name:"Business Negotiations",           dept:"ECONB",term:"fall",  cap:false, cross:"",
+ prereqs:[],
+ desc:"Principled negotiation using 'Getting to Yes'. Interest-based bargaining, dirty tricks, weekly practice. Group B."},
+{id:"E210", code:"ECON 210", name:"Business Communications",         dept:"ECONB",term:"occ",   cap:false, cross:"",
+ prereqs:["E113"],
+ desc:"Business writing (resumes, emails), presentations, case method, crisis management, negotiations. Group B."},
+{id:"E238", code:"ECON 238", name:"Introduction to Entrepreneurship",dept:"ECONB",term:"spring",cap:false, cross:"",
+ prereqs:["E119"],
+ desc:"Lean Startup, Human-Centered Design, Business Model Canvas. Teams develop a solution. Final presentation. Group B."},
+{id:"E256", code:"ECON 256", name:"Intro to Investment Banking",     dept:"ECONB",term:"occ",   cap:false, cross:"",
+ prereqs:["E113","E119"],
+ desc:"Investment banking overview: equity/debt capital markets, research, sales & trading, corporate finance. Career prep. Group B."},
+{id:"E258", code:"ECON 258", name:"Intro to Securities Analysis",    dept:"ECONB",term:"spring",cap:false, cross:"",
+ prereqs:["E113"],
+ desc:"Equity analysis: industry/company analysis, financial statement modeling in Excel, fundamental valuation. Company report. Group B."},
+{id:"E353", code:"ECON 353", name:"Managerial Accounting",           dept:"ECONB",term:"occ",   cap:false, cross:"",
+ prereqs:["E113"],
+ desc:"Business planning: budgets, performance evaluation, inventory control, capital budgeting. Case studies. Group B."},
+{id:"E354", code:"ECON 354", name:"Deals",                           dept:"ECONB",term:"occ",   cap:false, cross:"",
+ prereqs:["E113","E119"],
+ desc:"Alumni-taught class on business deals and transactions. Finance-oriented. Requires one additional econ course. Group B."},
+];
+
+// ────────────────────────────────────────────────────────
+// Build edge list + unlock map
+// ────────────────────────────────────────────────────────
+const EDGES = [];
+const UNLOCK = {};
+C.forEach(n=>{
+  n.prereqs.forEach(pid=>{
+    EDGES.push({src:pid, tgt:n.id});
+    if(!UNLOCK[pid]) UNLOCK[pid]=[];
+    UNLOCK[pid].push(n.id);
+  });
+});
+
+// Dept meta
+const DMETA={
+  COMP: {label:"Computer Science",   stroke:"#4444c0", fill:"#141638"},
+  MATH: {label:"Mathematics",        stroke:"#9a6000", fill:"#1c1200"},
+  STAT: {label:"Statistics / DS",    stroke:"#207050", fill:"#081a12"},
+  ECON: {label:"Econ (Group E)",     stroke:"#6a3aaa", fill:"#160c28"},
+  ECONB:{label:"Econ (Group B)",     stroke:"#884aaa", fill:"#1a0c28"},
+};
+
+// ────────────────────────────────────────────────────────
+// LAYOUT: group by dept, sort by number, assign x/y
+// ────────────────────────────────────────────────────────
+const NW=152, NH=62, XGAP=56, YGAP=18;
+const DEPT_ORDER=["COMP","MATH","STAT","ECON","ECONB"];
+let visSet=new Set(DEPT_ORDER);
+let searchQ="";
+let selId=null;
+
+function numOf(code){ return parseInt(code.replace(/\D+/,""))||0; }
+
+function computePos(nodes){
+  const byDept={};
+  DEPT_ORDER.forEach(d=>byDept[d]=[]);
+  nodes.forEach(n=>{ if(byDept[n.dept]) byDept[n.dept].push(n); });
+  DEPT_ORDER.forEach(d=>byDept[d].sort((a,b)=>numOf(a.code)-numOf(b.code)));
+  const pos={};
+  let xCur=60;
+  DEPT_ORDER.forEach(d=>{
+    const list=byDept[d];
+    if(!list||!list.length) return;
+    list.forEach((n,i)=>{ pos[n.id]={x:xCur, y:70+i*(NH+YGAP)}; });
+    xCur+=NW+XGAP;
+  });
+  return pos;
+}
+
+// ────────────────────────────────────────────────────────
+// SVG setup
+// ────────────────────────────────────────────────────────
+const svg=d3.select("#g");
+const defs=svg.append("defs");
+
+// Per-dept arrowheads
+Object.entries(DMETA).forEach(([d,m])=>{
+  defs.append("marker").attr("id","arr-"+d)
+    .attr("viewBox","0 0 10 10").attr("refX",9).attr("refY",5)
+    .attr("markerWidth",7).attr("markerHeight",7).attr("orient","auto-start-reverse")
+    .append("path").attr("d","M1,1 L9,5 L1,9")
+    .attr("fill","none").attr("stroke",m.stroke).attr("stroke-width",2).attr("stroke-linecap","round");
+  // highlighted version (brighter)
+  defs.append("marker").attr("id","arr-hl-"+d)
+    .attr("viewBox","0 0 10 10").attr("refX",9).attr("refY",5)
+    .attr("markerWidth",7).attr("markerHeight",7).attr("orient","auto-start-reverse")
+    .append("path").attr("d","M1,1 L9,5 L1,9")
+    .attr("fill","none").attr("stroke","#ffffff").attr("stroke-width",2).attr("stroke-linecap","round");
+});
+// cross-dept: no separate marker; uses source-dept colored marker
+
+const canvas=svg.append("g").attr("id","canvas");
+svg.call(
+  d3.zoom().scaleExtent([.08,3])
+    .on("zoom",e=>canvas.attr("transform",e.transform))
+);
+
+let edgeSel, nodeSel, pos={};
+
+function getVisible(){
+  const q=searchQ.toLowerCase();
+  return C.filter(n=>{
+    if(!visSet.has(n.dept)) return false;
+    if(q && !n.code.toLowerCase().includes(q) && !n.name.toLowerCase().includes(q) && !n.desc.toLowerCase().includes(q)) return false;
+    return true;
+  });
+}
+
+
+function render(){
+  canvas.selectAll("*").remove();
+  const vis=getVisible();
+  const visIds=new Set(vis.map(v=>v.id));
+  document.getElementById("count").textContent=vis.length+" courses";
+
+  pos=computePos(vis);
+
+  // ── department column header labels
+  const seenDept=new Set();
+  vis.forEach(n=>seenDept.add(n.dept));
+  const hdrData=[];
+  DEPT_ORDER.forEach(d=>{
+    if(!seenDept.has(d)) return;
+    const list=vis.filter(n=>n.dept===d);
+    if(!list.length) return;
+    const xs=list.map(n=>pos[n.id].x);
+    hdrData.push({dept:d, x:xs[0]+NW/2, label:DMETA[d].label, stroke:DMETA[d].stroke});
+  });
+  canvas.selectAll(".dhdr").data(hdrData).enter().append("text")
+    .attr("class","dhdr")
+    .attr("x",d=>d.x).attr("y",30)
+    .attr("text-anchor","middle")
+    .attr("font-size","11px").attr("font-weight","700")
+    .attr("letter-spacing",".07em").attr("fill",d=>d.stroke)
+    .attr("opacity",.7)
+    .text(d=>d.label.toUpperCase());
+
+  // ── edges
+  const edgeData=EDGES.filter(e=>visIds.has(e.src)&&visIds.has(e.tgt));
+  const srcOf=id=>{const n=C.find(x=>x.id===id);return n?n.dept:"COMP";};
+
+  edgeSel=canvas.selectAll(".edge").data(edgeData).enter().append("path")
+    .attr("class",e=>{
+      const sd=srcOf(e.src), td=srcOf(e.tgt);
+      return "edge "+sd+(sd===td?"":" cross");
+    })
+    .attr("marker-end",e=>{
+      const sd=srcOf(e.src);
+      return "url(#arr-"+sd+")";
+    })
+    .attr("d",e=>{
+      const sp=pos[e.src], tp=pos[e.tgt];
+      if(!sp||!tp) return "";
+      const sx=sp.x+NW, sy=sp.y+NH/2;
+      const tx=tp.x, ty=tp.y+NH/2;
+      // gentle S-curve
+      const cpx1=sx+Math.abs(tx-sx)*.5, cpx2=tx-Math.abs(tx-sx)*.5;
+      return `M${sx},${sy} C${cpx1},${sy} ${cpx2},${ty} ${tx},${ty}`;
+    });
+
+  // ── nodes
+  const ng=canvas.selectAll(".nd").data(vis,d=>d.id).enter().append("g")
+    .attr("class",d=>"nd "+d.dept)
+    .attr("transform",d=>{const p=pos[d.id];return `translate(${p.x},${p.y})`;})
+    .on("click",(_,d)=>clickNode(d));
+
+  ng.append("rect").attr("class","bg").attr("width",NW).attr("height",NH);
+  ng.append("rect").attr("class","ring").attr("width",NW).attr("height",NH).attr("id",d=>"ring-"+d.id);
+
+  // code
+  ng.append("text").attr("class","cod").attr("x",10).attr("y",17).text(d=>d.code);
+  // name (wrap 2 lines)
+  ng.append("text").attr("class","lbl").attr("x",10).attr("y",31).each(function(d){
+    const el=d3.select(this);
+    const words=d.name.split(" ");
+    let line="",lines=[];
+    words.forEach(w=>{
+      const test=line?line+" "+w:w;
+      if(test.length>17&&line){lines.push(line);line=w;}else line=test;
+    });
+    if(line) lines.push(line);
+    lines.slice(0,2).forEach((l,i)=>
+      el.append("tspan").attr("x",10).attr("dy",i===0?0:14).text(l)
+    );
+  });
+  // term
+  ng.append("text").attr("class","trm")
+    .attr("x",NW-7).attr("y",NH-7).attr("text-anchor","end")
+    .text(d=>({fall:"Fall",spring:"Spring",both:"All sems",occ:"Occasional"}[d.term]||""));
+  // capstone star
+  ng.filter(d=>d.cap).append("text").attr("class","cap-star")
+    .attr("x",NW-8).attr("y",16).attr("text-anchor","end").text("★");
+
+  nodeSel=ng;
+
+  // restore selection highlight if still visible
+  if(selId && visIds.has(selId)){
+    const nd=C.find(x=>x.id===selId);
+    if(nd) applyHighlight(nd, false);
+  } else if(selId && !visIds.has(selId)){
+    selId=null; closePanel();
+  }
+
+  // fit initial view
+  const allP=Object.values(pos);
+  if(allP.length){
+    const maxX=Math.max(...allP.map(p=>p.x))+NW+60;
+    const maxY=Math.max(...allP.map(p=>p.y))+NH+60;
+    const svgEl=document.getElementById("g");
+    const W=svgEl.clientWidth||1200, H=svgEl.clientHeight||700;
+    const sc=Math.min(W/maxX, H/maxY, .85);
+    const tx=(W-maxX*sc)/2, ty=28;
+    svg.call(d3.zoom().transform, d3.zoomIdentity.translate(tx,ty).scale(sc));
+    canvas.attr("transform",`translate(${tx},${ty}) scale(${sc})`);
+  }
+}
+
+function clickNode(d){
+  if(selId===d.id){ selId=null; clearHL(); closePanel(); return; }
+  selId=d.id;
+  applyHighlight(d, true);
+  showPanel(d);
+}
+
+function applyHighlight(d, openPnl){
+  if(!nodeSel||!edgeSel) return;
+  const preSet=new Set(d.prereqs);
+  const unlSet=new Set((UNLOCK[d.id]||[]).filter(x=>pos[x]));
+
+  nodeSel
+    .classed("fd", n=>!(n.id===d.id || preSet.has(n.id) || unlSet.has(n.id)))
+    .select(".ring").classed("on", (n,i,nodes)=>{
+      const pid=d3.select(nodes[i].parentNode).datum().id;
+      return pid===d.id||preSet.has(pid)||unlSet.has(pid);
+    });
+
+  edgeSel
+    .classed("hl", e=>(e.src===d.id||e.tgt===d.id)&&pos[e.src]&&pos[e.tgt])
+    .classed("fd", e=>!(e.src===d.id||e.tgt===d.id))
+    .attr("marker-end",e=>{
+      const hl=(e.src===d.id||e.tgt===d.id)&&pos[e.src]&&pos[e.tgt];
+      const srcDept=(C.find(x=>x.id===e.src)||{dept:"COMP"}).dept;
+      const tgtDept=(C.find(x=>x.id===e.tgt)||{dept:"COMP"}).dept;
+      if(hl) return "url(#arr-hl-"+srcDept+")";
+      return "url(#arr-"+srcDept+")";
+    });
+}
+
+function clearHL(){
+  if(nodeSel) nodeSel.classed("fd",false).select(".ring").classed("on",false);
+  if(edgeSel) edgeSel.classed("hl fd",false).attr("marker-end",e=>{
+    const sd=(C.find(x=>x.id===e.src)||{dept:"COMP"}).dept;
+    const td=(C.find(x=>x.id===e.tgt)||{dept:"COMP"}).dept;
+    return "url(#arr-"+sd+")";
+  });
+}
+
+function showPanel(d){
+  const dm=DMETA[d.dept]||{label:d.dept};
+  document.getElementById("pd").textContent=dm.label;
+  document.getElementById("pd").style.color=DMETA[d.dept]?.stroke||"#888";
+  document.getElementById("pc").textContent=d.code;
+  document.getElementById("pt").textContent=d.name;
+  document.getElementById("pdesc").textContent=d.desc;
+
+  // tags
+  const tags=document.getElementById("ptags");
+  tags.innerHTML="";
+  const tc={fall:"tag-fall",spring:"tag-spring",both:"tag-both",occ:"tag-occ"};
+  const tl={fall:"Fall only",spring:"Spring only",both:"Every semester",occ:"Occasional"};
+  tags.innerHTML+=`<span class="tag ${tc[d.term]||"tag-occ"}">${tl[d.term]||d.term}</span>`;
+  if(d.cap) tags.innerHTML+=`<span class="tag tag-cap">★ Capstone</span>`;
+  if(d.cross) tags.innerHTML+=`<span class="tag tag-cross">⇄ ${d.cross}</span>`;
+
+  // prereqs
+  const preEl=document.getElementById("ppre");
+  if(!d.prereqs.length){ preEl.innerHTML="<em style='color:#404048'>None — open to all.</em>"; }
+  else{
+    preEl.innerHTML="";
+    d.prereqs.forEach(pid=>{
+      const p=C.find(x=>x.id===pid);
+      const ch=document.createElement("span");
+      ch.className="chip "+(p?p.dept:"COMP");
+      ch.textContent=p?p.code:pid;
+      ch.title=p?p.name:"";
+      ch.addEventListener("click",()=>{ const fc=C.find(x=>x.id===pid); if(fc) clickNode(fc); });
+      preEl.appendChild(ch);
+    });
+  }
+
+  // unlocks
+  const unlEl=document.getElementById("punl");
+  const unl=(UNLOCK[d.id]||[]);
+  if(!unl.length){ unlEl.innerHTML="<em style='color:#404048'>No courses listed as needing this.</em>"; }
+  else{
+    unlEl.innerHTML="";
+    unl.forEach(uid=>{
+      const u=C.find(x=>x.id===uid);
+      if(!u) return;
+      const ch=document.createElement("span");
+      ch.className="chip "+u.dept;
+      ch.textContent=u.code;
+      ch.title=u.name;
+      ch.addEventListener("click",()=>clickNode(u));
+      unlEl.appendChild(ch);
+    });
+  }
+
+  document.getElementById("pxl").textContent=d.cross||"None";
+  document.getElementById("panel").classList.add("open");
+}
+
+function closePanel(){
+  document.getElementById("panel").classList.remove("open");
+  selId=null; clearHL();
+}
+
+// ── CONTROLS
+document.querySelectorAll(".fb[data-dept]").forEach(btn=>{
+  btn.addEventListener("click",()=>{
+    const d=btn.dataset.dept;
+    if(visSet.has(d)){visSet.delete(d);btn.classList.remove("on");}
+    else{visSet.add(d);btn.classList.add("on");}
+    render();
+  });
+});
+
+document.getElementById("search").addEventListener("input",e=>{
+  searchQ=e.target.value; render();
+});
+
+render();
+</script>
+</body>
+</html>
